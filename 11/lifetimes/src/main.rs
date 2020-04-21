@@ -1,32 +1,20 @@
-
-// Need to be explicit in saying that a and b will last the same length as each other
-// and that the return value exists while they exist
-fn greatest<'a>(a : &'a str, b: &'a str) -> &'a str {
-    if b.len() > a.len() {
-        b
-    }else{
-        a
-    }
-}
+// auto matically looks for a file called lib in the same path
+mod lib;
+// Import all the things in lib
+use lib::*;
 
 fn main() {
-    let hello = "Hello".to_string();
-    let _world = "world".to_string();
+    let args: Vec<String> = std::env::args().collect(); // remember this
 
-    let result;
-    {
-        let combined = "sh".to_string();
-        // This is not ok because the function greatest expects both to have the same life time
-        // the reality is that the 'combined' doesn't live as long as 'hello' so there's a chance for a dangling pointer
-        //result = greatest(&hello, &combined);
+    // If the unwrap fails do a closure where the thing is passed on as |msg"
+    let cfg = parse_args(&args).unwrap_or_else(|msg| {
+        eprintln!("Argument Error: {}", msg);
+        std::process::exit(1);
+    });
 
-        // This does compile because the return goes out of scope at the sametime/before the variables. 
-        // So no chance of dangling pointer
-        let _res = greatest(&combined, &hello);
-
-        // Even here I need to make a new string from the reference so that the reference isn't dangling
-        result = String::from(_res);
+    // Keep the main.rs minimal by putting the actual app in the lib.rs file
+    if let Err(e) = run(&cfg) {
+        eprintln!("Application error: {}", e);
+        std::process::exit(1);
     }
-
-    println!("Greatest = {}", result);
 }
