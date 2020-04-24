@@ -16,3 +16,5 @@ I looked at my sound file in audacity and can see the samples. There's no noise 
     * This will guide how to determine longs and shorts for more than my one clean file
 * Is there a standard frequency of the signal?
     * This will guide any filtering I need to do.
+* Can I produce a wav file containing my morse code message?
+    * I could output it to the speakers too?
