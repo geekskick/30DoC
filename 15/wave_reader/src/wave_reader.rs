@@ -1,10 +1,13 @@
 use std::convert::TryFrom;
 use std::convert::TryInto;
+use std::convert::Into;
 use std::error::Error;
 use std::fmt;
-use std::fs;
+use std::fmt::Write;
 use std::io::Read;
 use std::str;
+
+use prettytable::{Row, Table, Attr};
 
 pub struct Config<'a> {
     fname: &'a String,
@@ -18,8 +21,11 @@ pub fn parse_args(args: &[String]) -> Result<Config, &'static str> {
     Ok(Config { fname: &args[1] })
 }
 
-pub fn run(cfg: &Config) -> Result<(), &'static str> {
-    Err("misc error")
+pub fn run(cfg: &Config) -> Result<(),  Box<dyn std::error::Error>> {
+    let mut f = std::fs::File::open(cfg.fname)?;
+    let wh = WaveHeader::try_from(&mut f)?;
+    println!("{}", wh.to_string());
+    Ok(())
 }
 
 #[derive(PartialEq, Debug)]
@@ -34,6 +40,18 @@ enum WaveFormat {
 impl Default for WaveFormat {
     fn default() -> Self {
         WaveFormat::Float
+    }
+}
+
+impl ToString for WaveFormat {
+    fn to_string(&self) -> String {
+        match self {
+            WaveFormat::Alaw => "ALAW".to_string(),
+            WaveFormat::Pcm => "PCM".to_string(),
+            WaveFormat::Float => "Float".to_string(),
+            WaveFormat::Mulaw => "MULAW".to_string(),
+            WaveFormat::Extensible => "Extensible".to_string(),
+        }
     }
 }
 
@@ -55,6 +73,13 @@ impl Default for Hertz {
     }
 }
 
+impl ToString for Hertz {
+    fn to_string(&self) -> String {
+        let Hertz(v) = self;
+        format!("{} Hz", v)
+    }
+}
+
 #[derive(PartialEq, Debug)]
 enum WavHeaderError {
     Riff,
@@ -62,6 +87,18 @@ enum WavHeaderError {
     Format,
     FormatLength,
     UnrecognisedWaveFormat,
+}
+
+impl std::convert::From<&WavHeaderError> for &'static str{
+    fn from(whe: &WavHeaderError) -> &'static str{
+        match whe {
+            WavHeaderError::Format => "'fmt ' not present", 
+            WavHeaderError::FormatLength => "Format chunk size expected to be fixed at 16, but this wasn't in the file, or it wasn't in the right place",
+            WavHeaderError::Riff => "'RIFF' wasn't at the start of the file",
+            WavHeaderError::Wave => "'WAVE' wasn't in the right place of the header",
+            WavHeaderError::UnrecognisedWaveFormat => "Expected the file to by a PCM format, but it wasn't"
+        }
+    }
 }
 #[derive(Debug, PartialEq)]
 enum WavReadError {
@@ -72,7 +109,13 @@ enum WavReadError {
 
 impl fmt::Display for WavReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Error reading from WAV file")
+        let specific : &'static str = match self {
+            WavReadError::FileIO(err) => "Unable to read from the file",
+            WavReadError::DataConvertToString(err) => "Error converting Data to string",
+            WavReadError::Header(err) => err.into(),
+        };
+        write!(f, "Error reading from WAV file: {}", specific)
+
     }
 }
 impl Error for WavReadError {
@@ -101,9 +144,7 @@ struct RiffHeader {
 
 impl Default for RiffHeader {
     fn default() -> Self {
-        RiffHeader {
-            file_size: 0,
-        }
+        RiffHeader { file_size: 0 }
     }
 }
 
@@ -208,6 +249,32 @@ impl std::convert::TryFrom<&mut std::fs::File> for WaveHeader {
     }
 }
 
+impl ToString for WaveHeader {
+    fn to_string(&self) -> String {
+        let mut tbl = Table::new();
+        tbl.set_titles(Row::from(vec!["Section", "Data"]));
+        tbl.add_row(Row::from(vec![
+            "File Size",
+            &self.riff.file_size.to_string(),
+        ]));
+        tbl.add_row(Row::from(vec![
+            "Audio Format",
+            &self.audio_format.to_string(),
+        ]));
+        tbl.add_row(Row::from(vec![
+            "Number of Channels",
+            &self.num_channels.to_string(),
+        ]));
+        tbl.add_row(Row::from(vec![
+            "Sample Rate",
+            &self.sample_rate.to_string(),
+        ]));
+        // More to add here
+        let mut s = String::new();
+        let _ = write!(&mut s, "{}", tbl);
+        s
+    }
+}
 
 #[cfg(test)]
 mod tests {
