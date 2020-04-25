@@ -1,13 +1,13 @@
+use std::convert::Into;
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::convert::Into;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Write;
 use std::io::Read;
 use std::str;
 
-use prettytable::{Row, Table, Attr};
+use prettytable::{Row, Table};
 
 pub struct Config<'a> {
     fname: &'a String,
@@ -21,7 +21,7 @@ pub fn parse_args(args: &[String]) -> Result<Config, &'static str> {
     Ok(Config { fname: &args[1] })
 }
 
-pub fn run(cfg: &Config) -> Result<(),  Box<dyn std::error::Error>> {
+pub fn run(cfg: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut f = std::fs::File::open(cfg.fname)?;
     let wh = WaveHeader::try_from(&mut f)?;
     println!("{}", wh.to_string());
@@ -89,8 +89,8 @@ enum WavHeaderError {
     UnrecognisedWaveFormat,
 }
 
-impl std::convert::From<&WavHeaderError> for &'static str{
-    fn from(whe: &WavHeaderError) -> &'static str{
+impl std::convert::From<&WavHeaderError> for &'static str {
+    fn from(whe: &WavHeaderError) -> &'static str {
         match whe {
             WavHeaderError::Format => "'fmt ' not present", 
             WavHeaderError::FormatLength => "Format chunk size expected to be fixed at 16, but this wasn't in the file, or it wasn't in the right place",
@@ -109,13 +109,12 @@ enum WavReadError {
 
 impl fmt::Display for WavReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let specific : &'static str = match self {
-            WavReadError::FileIO(err) => "Unable to read from the file",
-            WavReadError::DataConvertToString(err) => "Error converting Data to string",
+        let specific: &'static str = match self {
+            WavReadError::FileIO(_) => "Unable to read from the file",
+            WavReadError::DataConvertToString(_) => "Error converting Data to string",
             WavReadError::Header(err) => err.into(),
         };
         write!(f, "Error reading from WAV file: {}", specific)
-
     }
 }
 impl Error for WavReadError {
@@ -255,7 +254,7 @@ impl ToString for WaveHeader {
         tbl.set_titles(Row::from(vec!["Section", "Data"]));
         tbl.add_row(Row::from(vec![
             "File Size",
-            &self.riff.file_size.to_string(),
+            &(self.riff.file_size.to_string() + " bytes"),
         ]));
         tbl.add_row(Row::from(vec![
             "Audio Format",
@@ -270,6 +269,7 @@ impl ToString for WaveHeader {
             &self.sample_rate.to_string(),
         ]));
         // More to add here
+        // TODO: Add the rest
         let mut s = String::new();
         let _ = write!(&mut s, "{}", tbl);
         s
