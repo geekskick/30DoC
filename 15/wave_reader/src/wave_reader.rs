@@ -31,6 +31,12 @@ enum WaveFormat {
     Extensible,
 }
 
+impl Default for WaveFormat {
+    fn default() -> Self {
+        WaveFormat::Float
+    }
+}
+
 impl std::convert::TryFrom<u16> for WaveFormat {
     type Error = WavReadError;
     fn try_from(value: u16) -> Result<Self, Self::Error> {
@@ -43,6 +49,11 @@ impl std::convert::TryFrom<u16> for WaveFormat {
 
 #[derive(PartialEq, Debug)]
 struct Hertz(u32);
+impl Default for Hertz {
+    fn default() -> Self {
+        Hertz(0)
+    }
+}
 
 #[derive(PartialEq, Debug)]
 enum WavHeaderError {
@@ -84,104 +95,119 @@ impl std::convert::From<std::str::Utf8Error> for WavReadError {
 }
 
 #[derive(PartialEq, Debug)]
-struct PcmWaveFile {
-    pub fname: String,
-    pub sample_rate: Hertz,
-    pub audio_format: WaveFormat,
-    pub num_channels: u16,
-    pub byte_rate: Hertz,
-    pub bits_per_sample: u16,
-    pub block_align: u16,
-    pub data_size: u32,
-    pub file_size: u32,
+struct RiffHeader {
+    file_size: u32,
 }
 
-impl PcmWaveFile {
-    pub fn default() -> Self {
-        PcmWaveFile {
-            fname: "Default".to_string(),
-            sample_rate: Hertz(8000),
-            audio_format: WaveFormat::Float,
-            num_channels: 0,
-            byte_rate: Hertz(1),
-            bits_per_sample: 0,
-            block_align: 0,
-            data_size: 0,
+impl Default for RiffHeader {
+    fn default() -> Self {
+        RiffHeader {
             file_size: 0,
         }
     }
 }
 
-fn check_riff_chunk(f: &mut std::fs::File) -> Result<PcmWaveFile, WavReadError> {
-    let mut buf: [u8; 4] = [0; 4];
-    f.read_exact(&mut buf)?;
-
-    let header = std::str::from_utf8(&buf)?;
-    if header != "RIFF" {
-        return Err(WavReadError::Header(WavHeaderError::Riff));
-    }
-
-    let mut rc = PcmWaveFile::default();
-    f.read_exact(&mut buf)?;
-    rc.file_size = u32::from_le_bytes(buf);
-
-    f.read_exact(&mut buf)?;
-    let wave = std::str::from_utf8(&buf)?;
-    if wave != "WAVE" {
-        return Err(WavReadError::Header(WavHeaderError::Wave));
-    }
-
-    Ok(rc)
+#[derive(PartialEq, Debug)]
+struct WaveHeader {
+    riff: RiffHeader,
+    sample_rate: Hertz,
+    audio_format: WaveFormat,
+    num_channels: u16,
+    byte_rate: Hertz,
+    bits_per_sample: u16,
+    block_align: u16,
+    data_size: u16,
 }
 
-fn parse_fmt_chunk(f: &mut std::fs::File, riff: PcmWaveFile) -> Result<PcmWaveFile, WavReadError> {
-    let mut buf: [u8; 4] = [0; 4];
-
-    let mut rc = PcmWaveFile::default();
-    rc.fname = riff.fname;
-    rc.file_size = riff.file_size;
-
-    f.read_exact(&mut buf)?;
-    let fmt = std::str::from_utf8(&buf)?;
-    if fmt != "fmt " {
-        return Err(WavReadError::Header(WavHeaderError::Format));
+impl Default for WaveHeader {
+    fn default() -> Self {
+        WaveHeader {
+            riff: RiffHeader::default(),
+            sample_rate: Hertz::default(),
+            audio_format: WaveFormat::default(),
+            bits_per_sample: 0,
+            byte_rate: Hertz::default(),
+            block_align: 0,
+            data_size: 0,
+            num_channels: 0,
+        }
     }
-
-    f.read_exact(&mut buf)?;
-    let fmt_len = u32::from_le_bytes(buf);
-    if fmt_len != 16 {
-        return Err(WavReadError::Header(WavHeaderError::FormatLength));
-    }
-
-    f.read_exact(&mut buf)?;
-    // Fallible conversion from the u16::from_le_bytes page
-    let (af_bytes, num_ch_bytes) = buf.split_at(std::mem::size_of::<u16>());
-    rc.audio_format = WaveFormat::try_from(u16::from_le_bytes(af_bytes.try_into().unwrap()))?;
-
-    rc.num_channels = u16::from_le_bytes(num_ch_bytes.try_into().unwrap());
-
-    f.read_exact(&mut buf)?;
-    rc.sample_rate = Hertz(u32::from_le_bytes(buf));
-
-    f.read_exact(&mut buf)?;
-    rc.byte_rate = Hertz(u32::from_le_bytes(buf));
-
-    f.read_exact(&mut buf)?;
-    let (block_bytes, bit_bytes) = buf.split_at(std::mem::size_of::<u16>());
-    rc.block_align = u16::from_le_bytes(block_bytes.try_into().unwrap());
-    rc.bits_per_sample = u16::from_le_bytes(bit_bytes.try_into().unwrap());
-
-    Ok(rc)
 }
-impl std::convert::TryFrom<&str> for PcmWaveFile {
+
+impl std::convert::TryFrom<&mut std::fs::File> for RiffHeader {
     type Error = WavReadError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let mut f = fs::File::open(value)?;
-        let riff_data_only = check_riff_chunk(&mut f)?;
-        let riff_and_wav_fmt_data = parse_fmt_chunk(&mut f, riff_data_only)?;
-        Ok(riff_and_wav_fmt_data)
+    fn try_from(f: &mut std::fs::File) -> Result<Self, Self::Error> {
+        let mut buf: [u8; 4] = [0; 4];
+        f.read_exact(&mut buf)?;
+
+        let header = std::str::from_utf8(&buf)?;
+        if header != "RIFF" {
+            return Err(WavReadError::Header(WavHeaderError::Riff));
+        }
+
+        let mut rc = RiffHeader::default();
+        f.read_exact(&mut buf)?;
+        rc.file_size = u32::from_le_bytes(buf);
+
+        f.read_exact(&mut buf)?;
+        let wave = std::str::from_utf8(&buf)?;
+        if wave != "WAVE" {
+            return Err(WavReadError::Header(WavHeaderError::Wave));
+        }
+
+        Ok(rc)
     }
 }
+
+impl std::convert::From<RiffHeader> for WaveHeader {
+    fn from(riff: RiffHeader) -> Self {
+        let mut rc = WaveHeader::default();
+        rc.riff = riff;
+        rc
+    }
+}
+
+impl std::convert::TryFrom<&mut std::fs::File> for WaveHeader {
+    type Error = WavReadError;
+    fn try_from(f: &mut std::fs::File) -> Result<Self, Self::Error> {
+        let riff = RiffHeader::try_from(f.by_ref())?;
+        let mut rc = WaveHeader::from(riff);
+        let mut buf: [u8; 4] = [0; 4];
+
+        f.read_exact(&mut buf)?;
+        let fmt = std::str::from_utf8(&buf)?;
+        if fmt != "fmt " {
+            return Err(WavReadError::Header(WavHeaderError::Format));
+        }
+
+        f.read_exact(&mut buf)?;
+        let fmt_len = u32::from_le_bytes(buf);
+        if fmt_len != 16 {
+            return Err(WavReadError::Header(WavHeaderError::FormatLength));
+        }
+
+        f.read_exact(&mut buf)?;
+        // Fallible conversion from the u16::from_le_bytes page
+        let (af_bytes, num_ch_bytes) = buf.split_at(std::mem::size_of::<u16>());
+        rc.audio_format = WaveFormat::try_from(u16::from_le_bytes(af_bytes.try_into().unwrap()))?;
+
+        rc.num_channels = u16::from_le_bytes(num_ch_bytes.try_into().unwrap());
+
+        f.read_exact(&mut buf)?;
+        rc.sample_rate = Hertz(u32::from_le_bytes(buf));
+
+        f.read_exact(&mut buf)?;
+        rc.byte_rate = Hertz(u32::from_le_bytes(buf));
+
+        f.read_exact(&mut buf)?;
+        let (block_bytes, bit_bytes) = buf.split_at(std::mem::size_of::<u16>());
+        rc.block_align = u16::from_le_bytes(block_bytes.try_into().unwrap());
+        rc.bits_per_sample = u16::from_le_bytes(bit_bytes.try_into().unwrap());
+
+        Ok(rc)
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -203,16 +229,18 @@ mod tests {
         assert!(cfg.is_err());
     }
 
-    fn get_full_path_of_test_resource(rname: &str) -> String {
-        std::env::var("CARGO_MANIFEST_DIR")
+    fn get_full_path_of_test_resource(rname: &str) -> std::path::PathBuf {
+        let s = std::env::var("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|_| String::from(std::env::current_dir().unwrap().to_str().unwrap()))
             + "/"
-            + rname
+            + rname;
+        std::path::PathBuf::from(&s)
     }
 
-    fn get_metadata(filename: &str) -> Result<PcmWaveFile, WavReadError> {
+    fn get_metadata(filename: &str) -> Result<WaveHeader, WavReadError> {
         let path = get_full_path_of_test_resource(filename);
-        PcmWaveFile::try_from(path.as_str())
+        let mut f = std::fs::File::open(path)?;
+        WaveHeader::try_from(&mut f)
     }
 
     #[test]
@@ -254,8 +282,8 @@ mod tests {
         );
 
         let metadata = get_metadata("test_input.wav");
-        let mut expected = PcmWaveFile::default();
-        expected.file_size = 636_998;
+        let mut expected = WaveHeader::default();
+        expected.riff.file_size = 636_998;
         expected.audio_format = WaveFormat::Pcm;
         expected.num_channels = 1;
         expected.sample_rate = Hertz(8000);
