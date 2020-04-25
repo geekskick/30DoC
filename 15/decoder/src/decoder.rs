@@ -8,7 +8,7 @@ pub enum Direction {
 
 // Code Review comment: There are traits which define converting to/from strings and stuff.
 // Using these traits makes the code more rusty
-impl std::str::FromStr for Direction{
+impl std::str::FromStr for Direction {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -42,16 +42,14 @@ pub fn parse_args(args: &[String]) -> Result<Config, &'static str> {
 }
 
 pub fn run(cfg: &Config) -> Result<(), &'static str> {
-    match cfg.direction {
-        Direction::To => match encode(&cfg.message) {
-            None => return Err("Unable to encode"),
-            Some(s) => println!("{}", s),
-        },
-        Direction::From => match decode(&cfg.message) {
-            None => return Err("Unable to decode"),
-            Some(s) => println!("{}", s),
-        },
+    let s = match cfg.direction {
+        Direction::To => encode(&cfg.message),
+        Direction::From => decode(&cfg.message),
+    };
+    if s.is_none() {
+        return Err("Unable to convert");
     }
+    println!("{}", s.unwrap());
     Ok(())
 }
 
@@ -120,13 +118,13 @@ fn encode(msg: &str) -> Option<String> {
 
     // In addition these need to be const - this is so thet allow for greater compile time optimisation,
     // let is evaluated at runtume and consts are basically static
-    const TABLE : [&str; 26] = [
+    const TABLE: [&str; 26] = [
         ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--",
         "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--",
-        "--.."
+        "--..",
     ];
-    const NUMBER_TABLE : [&str; 10] = [
-        "-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----."
+    const NUMBER_TABLE: [&str; 10] = [
+        "-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----.",
     ];
 
     let mut rs = String::new();
@@ -141,7 +139,7 @@ fn encode(msg: &str) -> Option<String> {
             let letter = letter.to_ascii_lowercase();
             let number = letter as u8;
             // If I want a byte I need to use b'a'. 'a' is a char type which is 4 bytes long
-            // Thanks cargo clippy 
+            // Thanks cargo clippy
             let number = number - b'a';
             rs += TABLE[number as usize];
         } else if letter.is_ascii_whitespace() {
