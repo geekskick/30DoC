@@ -9,18 +9,18 @@ use std::str;
 
 use prettytable::{Row, Table};
 
-#[derive(PartialEq,Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Config<'a> {
     fname: &'a String,
 }
 
 #[derive(PartialEq, Debug)]
-pub enum ConfigParseError{
+pub enum ConfigParseError {
     NotEnoughArgs,
-    TooManyArgs
+    TooManyArgs,
 }
 
-impl<'a> std::convert::TryFrom<&'a [String]> for Config<'a>{
+impl<'a> std::convert::TryFrom<&'a [String]> for Config<'a> {
     type Error = ConfigParseError;
     fn try_from(args: &'a [String]) -> Result<Self, Self::Error> {
         if args.len() < 2 {
@@ -30,7 +30,7 @@ impl<'a> std::convert::TryFrom<&'a [String]> for Config<'a>{
             return Err(ConfigParseError::TooManyArgs);
         }
 
-        Ok(Config{ fname: &args[1] })
+        Ok(Config { fname: &args[1] })
     }
 }
 
@@ -41,18 +41,18 @@ impl Error for ConfigParseError {
     }
 }
 
-impl fmt::Display for ConfigParseError{
+impl fmt::Display for ConfigParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = match self{
+        let s = match self {
             ConfigParseError::TooManyArgs => "Too many arguments passed",
-            ConfigParseError::NotEnoughArgs => "Not enough args passed"
+            ConfigParseError::NotEnoughArgs => "Not enough args passed",
         };
         write!(f, "{}", s)
     }
 }
 pub fn run(cfg: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut f = std::fs::File::open(cfg.fname)?;
-    let wh = WaveHeader::try_from(&mut f)?;
+    let wh = WaveFile::try_from(&mut f)?;
     println!("{}", wh);
     Ok(())
 }
@@ -140,7 +140,7 @@ enum WavReadError {
 impl fmt::Display for WavReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let specific: &'static str = match self {
-            WavReadError::FileIO(_) => "Unable to read from the file",
+            WavReadError::FileIO(_) => "FileIO error and unable to read from the file. Ensure it has a valid 'data' subchunk",
             WavReadError::DataConvertToString(_) => "Error converting Data to string",
             WavReadError::Header(err) => err.into(),
         };
@@ -237,8 +237,8 @@ impl std::convert::From<RiffHeader> for WaveHeader {
     }
 }
 
-fn advance_to_data_subchunk(f: &mut std::fs::File) -> Result<(), WavReadError>{
-    let mut buf :[u8; 4] = [0;4];
+fn advance_to_data_subchunk(f: &mut std::fs::File) -> Result<(), WavReadError> {
+    let mut buf: [u8; 4] = [0; 4];
     loop {
         f.read_exact(&mut buf)?;
         let subchunk2_name = std::str::from_utf8(&buf)?.to_owned();
@@ -298,7 +298,6 @@ impl std::convert::TryFrom<&mut std::fs::File> for WaveHeader {
         Ok(rc)
     }
 }
-
 impl fmt::Display for WaveHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut tbl = Table::new();
@@ -332,6 +331,56 @@ impl fmt::Display for WaveHeader {
     }
 }
 
+#[derive(Debug)]
+struct WaveFile {
+    header: WaveHeader,
+    ldata: Vec<u16>,
+    rdata: Vec<u16>,
+}
+
+impl Default for WaveFile {
+    fn default() -> Self {
+        WaveFile {
+            header: WaveHeader::default(),
+            ldata: Vec::new(),
+            rdata: Vec::new(),
+        }
+    }
+}
+
+impl std::convert::From<WaveHeader> for WaveFile {
+    fn from(h: WaveHeader) -> Self {
+        let mut rc = WaveFile::default();
+        rc.header = h;
+        rc
+    }
+}
+
+impl std::convert::TryFrom<&mut std::fs::File> for WaveFile {
+    type Error = WavReadError;
+    fn try_from(f: &mut std::fs::File) -> Result<Self, Self::Error> {
+        let header = WaveHeader::try_from(f.by_ref())?;
+        let mut rc = WaveFile::from(header);
+        let mut samples = Vec::new();
+        f.read_to_end(&mut samples)?;
+
+        // This is shit! There must be a rustier way of getting them out
+        for (idx, sample) in samples.iter().enumerate() {
+            if idx % 2 == 0 {
+                let bo = [*sample, samples[idx + 1]];
+                rc.ldata.push(u16::from_le_bytes(bo));
+            }
+        }
+        Ok(rc)
+    }
+}
+
+impl fmt::Display for WaveFile{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        write!(f, "{}", self.header)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,14 +390,11 @@ mod tests {
         let args = vec!["Progname".to_string()];
         let cfg = Config::try_from(args.as_slice());
 
-        assert_eq!(
-            cfg.err().unwrap(),
-            ConfigParseError::NotEnoughArgs
-        );
+        assert_eq!(cfg.err().unwrap(), ConfigParseError::NotEnoughArgs);
     }
 
     #[test]
-    fn parse_args_test_just_right(){
+    fn parse_args_test_just_right() {
         let args = vec!["Progname".to_string(), "arg".to_string()];
         let cfg = Config::try_from(args.as_slice()).unwrap();
         assert_eq!(&args[1], cfg.fname);
@@ -356,13 +402,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_test_too_many(){
+    fn parse_args_test_too_many() {
         let args = vec!["one".to_string(), "arg".to_string(), "extra".to_string()];
         let cfg = Config::try_from(args.as_slice());
-        assert_eq!(
-            cfg.err().unwrap(),
-            ConfigParseError::TooManyArgs
-        );
+        assert_eq!(cfg.err().unwrap(), ConfigParseError::TooManyArgs);
     }
 
     fn get_full_path_of_test_resource(rname: &str) -> std::path::PathBuf {
@@ -388,8 +431,7 @@ mod tests {
         );
     }
     #[test]
-    fn read_wave_file_test_file_no_riff(){
-
+    fn read_wave_file_test_file_no_riff() {
         let metadata = get_metadata("test_input_no_riff.wav");
         assert_eq!(
             metadata.err().unwrap(),
@@ -398,16 +440,16 @@ mod tests {
     }
 
     #[test]
-    fn read_wave_file_test_file_no_wave(){
+    fn read_wave_file_test_file_no_wave() {
         let metadata = get_metadata("test_input_no_wave.wav");
         assert_eq!(
             metadata.err().unwrap(),
             WavReadError::Header(WavHeaderError::Wave)
-            );
-        }
+        );
+    }
 
     #[test]
-    fn read_wave_file_test_file_no_fmt(){
+    fn read_wave_file_test_file_no_fmt() {
         let metadata = get_metadata("test_input_no_fmt.wav");
         assert_eq!(
             metadata.err().unwrap(),
@@ -416,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn read_wave_file_test_file_no_fmt_len(){
+    fn read_wave_file_test_file_no_fmt_len() {
         let metadata = get_metadata("test_input_no_fmt_len.wav");
         assert_eq!(
             metadata.err().unwrap(),
@@ -425,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn read_wave_file_test_file_wrong_fmt(){
+    fn read_wave_file_test_file_wrong_fmt() {
         let metadata = get_metadata("test_input_wrong_fmt.wav");
         assert_eq!(
             metadata.err().unwrap(),
@@ -434,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn read_wave_file_test_file_no_data(){
+    fn read_wave_file_test_file_no_data() {
         let metadata = get_metadata("test_input_no_data.wav");
         assert_eq!(
             metadata.err().unwrap(),
@@ -443,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn read_wave_file_test_file_success(){
+    fn read_wave_file_test_file_success() {
         let metadata = get_metadata("test_input.wav");
         let mut expected = WaveHeader::default();
         expected.riff.file_size = 636_998;
@@ -455,5 +497,15 @@ mod tests {
         expected.bits_per_sample = 16;
 
         assert_eq!(metadata.unwrap(), expected);
+    }
+
+    #[test]
+    fn read_data_from_wave_file() {
+        let file = get_full_path_of_test_resource("test_input_short.wav");
+        let mut file = std::fs::File::open(file).unwrap();
+        let wave = WaveFile::try_from(&mut file);
+        assert!(wave.is_ok());
+        let wave = wave.unwrap();
+        assert_eq!(wave.ldata, [0, 1, 2, 3, 4, 5]);
     }
 }
