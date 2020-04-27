@@ -55,14 +55,15 @@ pub fn run(cfg: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut f = std::fs::File::open(cfg.fname)?;
     let wh = WaveFile::try_from(&mut f)?;
     println!("{}", wh);
-    let _ = parse(&wh.ldata, 3000);
+    println!("{}", parse(&wh.ldata, 3000));
     Ok(())
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 enum Symbol {
     Short,
     Long,
+    Space,
 }
 
 #[derive(PartialEq, Debug)]
@@ -389,112 +390,301 @@ impl fmt::Display for WaveFile {
     }
 }
 
-fn parse(samples: &[i16], threshold: i16) -> Option<Vec<Symbol>> {
-    let mut over_threshold: u64 = 0;
-    let mut under_threshold: u64 = 0;
-    let mut rc: Vec<Symbol> = Vec::new();
-    let mut skip = false;
+#[derive(Debug)]
+struct ParserStatus {
+    over_threshold: u64,
+    under_threshold: u64,
+}
+
+impl Default for ParserStatus {
+    fn default() -> ParserStatus {
+        ParserStatus {
+            over_threshold: 0,
+            under_threshold: 0,
+        }
+    }
+}
+
+impl ParserStatus {
+    fn is_end_of_symbol(&self) -> bool {
+        // Small gap immediately after some stuff over the threshold
+        self.under_threshold > 3 && self.under_threshold <= 1000 && self.over_threshold != 0
+    }
+
+    fn over(&mut self) {
+        self.over_threshold += 1;
+        self.under_threshold = 0;
+    }
+
+    fn under(&mut self) {
+        self.under_threshold += 1;
+    }
+
+    fn reset_under(&mut self) {
+        self.under_threshold = 0;
+    }
+
+    fn reset_over(&mut self) {
+        self.over_threshold = 0;
+    }
+
+    fn is_end_of_word(&self) -> bool {
+        // Big gap
+        self.under_threshold > 1000 && self.under_threshold <= 2000 && self.over_threshold == 0
+    }
+
+    fn is_space(&self) -> bool {
+        // Bigger gap
+        self.under_threshold > 2000 && self.over_threshold == 0
+    }
+}
+
+fn parse(samples: &[i16], threshold: i16) -> String {
+    let mut status = ParserStatus::default();
+    let mut symbols: Vec<Symbol> = Vec::new();
+    let mut rc = String::new();
     for sample in samples {
-        let mut abs = threshold + 1;
-        if *sample != std::i16::MIN {
-            abs = sample.abs();
-        };
+        let abs = sample.checked_abs().unwrap_or(threshold + 1);
 
         if abs > threshold {
-            over_threshold += 1;
-            under_threshold = 0;
+            status.over();
         } else if abs < threshold {
-            under_threshold += 1;
+            status.under();
         }
 
-        if under_threshold > 3 && over_threshold != 0 {
-            let symbol = Symbol::try_from(over_threshold);
-            over_threshold = 0;
+        if status.is_end_of_symbol() {
+            // If the symbol doesn't successfully parse then it's less than a
+            // unit (short). In which case assume it's an erroneous blip in the sinwave
+            // so go to pretend it never happened by just going to the next sample
+            let symbol = Symbol::try_from(status.over_threshold);
+
+            status.reset_over();
             if symbol.is_err() {
                 continue;
             }
-            rc.push(symbol.unwrap());
-        }
 
-        if under_threshold > 1000 && !rc.is_empty() {
-            // probably the end of a letter
-            let st: Vec<String> = rc.iter().map(|s| s.to_string()).collect();
-            eprint!("{}", decode(&st.join("")).unwrap());
+            symbols.push(symbol.unwrap());
+        } else if status.is_end_of_word() && !symbols.is_empty() {
+            // If it's the end of the word I can try to decode the symbols gathered
+            rc += decode(&symbols);
+            symbols.clear();
+        } else if status.is_space() {
+            // If it's a really long gap I can add a space to the output string
+            // Make sure to reset the under threshold count as there has been a big gap, so I'm not really bothered
+            // about anything until the end of the next big gap.
 
-            rc.clear();
-            skip = false;
-        }
-
-        if under_threshold > 2000{
-            if !skip {
-                eprint!(" ");
-                skip = true;
+            // If there is loads of gap it might be that the operator is having a break etc. In which case I don't
+            // want loads of spaces in the string, so only add spaces if there isn't already
+            if !rc.ends_with(' ') {
+                rc += " ";
             }
+            status.reset_under();
         }
     }
-    if !rc.is_empty() {
-        // probably the end of a word
-        let st: Vec<String> = rc.iter().map(|s| s.to_string()).collect();
-            eprintln!("{}", decode(&st.join("")).unwrap());
-        rc.clear();
+
+    if !symbols.is_empty() {
+        // probably the end of a word since it's the end of the file so
+        // try to decode it. No guarantee that the final symbol has ended with a
+        // long enough gap to trigger an end of symbol decode
+        rc += decode(&symbols);
+        symbols.clear();
     }
-    if rc.is_empty() {
-        return None;
-    }
-    Some(rc)
+    rc
 }
 
-fn decode(morse : &str) -> Option<String>{
-    let map : std::collections::HashMap<String, String> = [
-        (".-".to_string(), "a".to_string()),
-        ("-...".to_string(), "b".to_string()),
-        ("-.-.".to_string(), "c".to_string()),
-        ("-..".to_string(), "d".to_string()),
-        (".".to_string(), "e".to_string()),
-        ("..-.".to_string(), "f".to_string()),
-        ("--.".to_string(), "g".to_string()),
-        ("....".to_string(), "h".to_string()),
-        ("..".to_string(), "i".to_string()),
-        (".---".to_string(), "j".to_string()),
-        ("-.-".to_string(), "k".to_string()),
-        (".-..".to_string(), "l".to_string()),
-        ("--".to_string(), "m".to_string()),
-        ("-.".to_string(), "n".to_string()),
-        ("---".to_string(), "o".to_string()),
-        (".--.".to_string(), "p".to_string()),
-        ("--.-".to_string(), "q".to_string()),
-        (".-.".to_string(), "r".to_string()),
-        ("...".to_string(), "s".to_string()),
-        ("-".to_string(), "t".to_string()),
-        ("..-".to_string(), "u".to_string()),
-        ("...-".to_string(), "v".to_string()),
-        (".--".to_string(), "w".to_string()),
-        ("-..-".to_string(), "x".to_string()),
-        ("-.--".to_string(), "y".to_string()),
-        ("--..".to_string(), "z".to_string()),
-        ("/".to_string(), " ".to_string()),
-        ("-----".to_string(), "0".to_string()),
-        (".----".to_string(),"1".to_string()),
-        ("..---".to_string(),"2".to_string()),
-        ("...--".to_string(), "3".to_string()),
-        ("....-".to_string(),"4".to_string()),
-        (".....".to_string(), "5".to_string()),
-        ("-....".to_string(), "6".to_string()),
-        ("--...".to_string(), "7".to_string()),
-        ("---..".to_string(),"8".to_string()),
-        ("----.".to_string(),"9".to_string()),
-        ("-.-.--".to_string(), "!".to_string()),
-        (".----.".to_string(), "'".to_string())
-    ].iter().cloned().collect();
-
-    let mut rc = "".to_string();
-    for word in morse.split_ascii_whitespace(){
-        match map.get(word){
-            None => return None,
-            Some(s) => rc += s,
-        }
-    }
-    Some(rc)
+fn decode(morse: &[Symbol]) -> &'static str {
+    // WTF is this formatting?
+    let map: std::collections::HashMap<Vec<Symbol>, &'static str> = [
+        (vec![Symbol::Short, Symbol::Long], "a"),
+        (
+            vec![Symbol::Long, Symbol::Short, Symbol::Short, Symbol::Short],
+            "b",
+        ),
+        (
+            vec![Symbol::Long, Symbol::Short, Symbol::Long, Symbol::Short],
+            "c",
+        ),
+        (vec![Symbol::Long, Symbol::Short, Symbol::Short], "d"),
+        (vec![Symbol::Short], "e"),
+        (
+            vec![Symbol::Short, Symbol::Short, Symbol::Long, Symbol::Short],
+            "f",
+        ),
+        (vec![Symbol::Long, Symbol::Long, Symbol::Short], "g"),
+        (
+            vec![Symbol::Short, Symbol::Short, Symbol::Short, Symbol::Short],
+            "h",
+        ),
+        (vec![Symbol::Short, Symbol::Short], "i"),
+        (
+            vec![Symbol::Short, Symbol::Long, Symbol::Long, Symbol::Long],
+            "j",
+        ),
+        (vec![Symbol::Long, Symbol::Short, Symbol::Long], "k"),
+        (
+            vec![Symbol::Short, Symbol::Long, Symbol::Short, Symbol::Short],
+            "l",
+        ),
+        (vec![Symbol::Long, Symbol::Long], "m"),
+        (vec![Symbol::Long, Symbol::Short], "n"),
+        (vec![Symbol::Long, Symbol::Long, Symbol::Long], "o"),
+        (
+            vec![Symbol::Short, Symbol::Long, Symbol::Long, Symbol::Short],
+            "p",
+        ),
+        (
+            vec![Symbol::Long, Symbol::Long, Symbol::Short, Symbol::Long],
+            "q",
+        ),
+        (vec![Symbol::Short, Symbol::Long, Symbol::Short], "r"),
+        (vec![Symbol::Short, Symbol::Short, Symbol::Short], "s"),
+        (vec![Symbol::Long], "t"),
+        (vec![Symbol::Short, Symbol::Short, Symbol::Long], "u"),
+        (
+            vec![Symbol::Short, Symbol::Short, Symbol::Short, Symbol::Long],
+            "v",
+        ),
+        (vec![Symbol::Short, Symbol::Long, Symbol::Long], "w"),
+        (
+            vec![Symbol::Long, Symbol::Short, Symbol::Short, Symbol::Long],
+            "x",
+        ),
+        (
+            vec![Symbol::Long, Symbol::Short, Symbol::Long, Symbol::Long],
+            "y",
+        ),
+        (
+            vec![Symbol::Long, Symbol::Long, Symbol::Short, Symbol::Short],
+            "z",
+        ),
+        (vec![Symbol::Space], " "),
+        (
+            vec![
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+            ],
+            "0",
+        ),
+        (
+            vec![
+                Symbol::Short,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+            ],
+            "1",
+        ),
+        (
+            vec![
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+            ],
+            "2",
+        ),
+        (
+            vec![
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Long,
+                Symbol::Long,
+            ],
+            "3",
+        ),
+        (
+            vec![
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Long,
+            ],
+            "4",
+        ),
+        (
+            vec![
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+            ],
+            "5",
+        ),
+        (
+            vec![
+                Symbol::Long,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+            ],
+            "6",
+        ),
+        (
+            vec![
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Short,
+                Symbol::Short,
+                Symbol::Short,
+            ],
+            "7",
+        ),
+        (
+            vec![
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Short,
+                Symbol::Short,
+            ],
+            "8",
+        ),
+        (
+            vec![
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Short,
+            ],
+            "9",
+        ),
+        (
+            vec![
+                Symbol::Long,
+                Symbol::Short,
+                Symbol::Long,
+                Symbol::Short,
+                Symbol::Long,
+                Symbol::Long,
+            ],
+            "!",
+        ),
+        (
+            vec![
+                Symbol::Short,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Long,
+                Symbol::Short,
+            ],
+            "'",
+        ),
+    ]
+    .iter()
+    .cloned()
+    .collect();
+    map.get(morse).unwrap_or(&"?")
 }
 
 #[derive(Debug, PartialEq)]
@@ -505,15 +695,24 @@ impl fmt::Display for Symbol {
         let s = match self {
             Symbol::Long => "-",
             Symbol::Short => ".",
+            Symbol::Space => "/",
         };
         write!(f, "{}", s)
+    }
+}
+
+impl fmt::Display for SymbolError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "?")
     }
 }
 
 impl std::convert::TryFrom<u64> for Symbol {
     type Error = SymbolError;
     fn try_from(sample_count: u64) -> Result<Self, Self::Error> {
-        if sample_count > 800 {
+        // A dot is one unit
+        // A dash is three units
+        if sample_count > 1200 {
             return Ok(Symbol::Long);
         }
         if sample_count > 400 {
