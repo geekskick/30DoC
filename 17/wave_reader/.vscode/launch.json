@@ -1,0 +1,46 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'wave_reader'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=wave_reader",
+                    "--package=wave_reader"
+                ],
+                "filter": {
+                    "name": "wave_reader",
+                    "kind": "bin"
+                }
+            },
+            "args": ["test_input.wav"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'wave_reader'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=wave_reader",
+                    "--package=wave_reader"
+                ],
+                "filter": {
+                    "name": "wave_reader",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

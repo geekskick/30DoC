@@ -393,6 +393,7 @@ fn parse(samples: &[i16], threshold: i16) -> Option<Vec<Symbol>> {
     let mut over_threshold: u64 = 0;
     let mut under_threshold: u64 = 0;
     let mut rc: Vec<Symbol> = Vec::new();
+    let mut skip = false;
     for sample in samples {
         let mut abs = threshold + 1;
         if *sample != std::i16::MIN {
@@ -416,21 +417,82 @@ fn parse(samples: &[i16], threshold: i16) -> Option<Vec<Symbol>> {
         }
 
         if under_threshold > 1000 && !rc.is_empty() {
-            // probably the end of a word
+            // probably the end of a letter
             let st: Vec<String> = rc.iter().map(|s| s.to_string()).collect();
-            eprintln!("Word = {:?}, {}", rc, st.join(""));
+            eprint!("{}", decode(&st.join("")).unwrap());
 
             rc.clear();
+            skip = false;
+        }
+
+        if under_threshold > 2000{
+            if !skip {
+                eprint!(" ");
+                skip = true;
+            }
         }
     }
     if !rc.is_empty() {
         // probably the end of a word
         let st: Vec<String> = rc.iter().map(|s| s.to_string()).collect();
-        eprintln!("Word = {:?}, {}", rc, st.join(""));
+            eprintln!("{}", decode(&st.join("")).unwrap());
         rc.clear();
     }
     if rc.is_empty() {
         return None;
+    }
+    Some(rc)
+}
+
+fn decode(morse : &str) -> Option<String>{
+    let map : std::collections::HashMap<String, String> = [
+        (".-".to_string(), "a".to_string()),
+        ("-...".to_string(), "b".to_string()),
+        ("-.-.".to_string(), "c".to_string()),
+        ("-..".to_string(), "d".to_string()),
+        (".".to_string(), "e".to_string()),
+        ("..-.".to_string(), "f".to_string()),
+        ("--.".to_string(), "g".to_string()),
+        ("....".to_string(), "h".to_string()),
+        ("..".to_string(), "i".to_string()),
+        (".---".to_string(), "j".to_string()),
+        ("-.-".to_string(), "k".to_string()),
+        (".-..".to_string(), "l".to_string()),
+        ("--".to_string(), "m".to_string()),
+        ("-.".to_string(), "n".to_string()),
+        ("---".to_string(), "o".to_string()),
+        (".--.".to_string(), "p".to_string()),
+        ("--.-".to_string(), "q".to_string()),
+        (".-.".to_string(), "r".to_string()),
+        ("...".to_string(), "s".to_string()),
+        ("-".to_string(), "t".to_string()),
+        ("..-".to_string(), "u".to_string()),
+        ("...-".to_string(), "v".to_string()),
+        (".--".to_string(), "w".to_string()),
+        ("-..-".to_string(), "x".to_string()),
+        ("-.--".to_string(), "y".to_string()),
+        ("--..".to_string(), "z".to_string()),
+        ("/".to_string(), " ".to_string()),
+        ("-----".to_string(), "0".to_string()),
+        (".----".to_string(),"1".to_string()),
+        ("..---".to_string(),"2".to_string()),
+        ("...--".to_string(), "3".to_string()),
+        ("....-".to_string(),"4".to_string()),
+        (".....".to_string(), "5".to_string()),
+        ("-....".to_string(), "6".to_string()),
+        ("--...".to_string(), "7".to_string()),
+        ("---..".to_string(),"8".to_string()),
+        ("----.".to_string(),"9".to_string()),
+        ("-.-.--".to_string(), "!".to_string()),
+        (".----.".to_string(), "'".to_string())
+    ].iter().cloned().collect();
+
+    let mut rc = "".to_string();
+    for word in morse.split_ascii_whitespace(){
+        match map.get(word){
+            None => return None,
+            Some(s) => rc += s,
+        }
     }
     Some(rc)
 }
@@ -451,7 +513,6 @@ impl fmt::Display for Symbol {
 impl std::convert::TryFrom<u64> for Symbol {
     type Error = SymbolError;
     fn try_from(sample_count: u64) -> Result<Self, Self::Error> {
-        eprintln!("Converting to a symbol from {} samples", sample_count);
         if sample_count > 800 {
             return Ok(Symbol::Long);
         }
