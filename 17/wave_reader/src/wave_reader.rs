@@ -406,8 +406,10 @@ impl Default for ParserStatus {
 }
 
 impl ParserStatus {
+    // End of a long/short
     fn is_end_of_symbol(&self) -> bool {
         // Small gap immediately after some stuff over the threshold
+        // This was measured in audacity
         self.under_threshold > 3 && self.under_threshold <= 1000 && self.over_threshold != 0
     }
 
@@ -428,8 +430,8 @@ impl ParserStatus {
         self.over_threshold = 0;
     }
 
-    fn is_end_of_word(&self) -> bool {
-        // Big gap
+    fn is_end_of_letter(&self) -> bool {
+        // Big gap at the end of the 
         self.under_threshold > 1000 && self.under_threshold <= 2000 && self.over_threshold == 0
     }
 
@@ -464,7 +466,7 @@ fn parse(samples: &[i16], threshold: i16) -> String {
             }
 
             symbols.push(symbol.unwrap());
-        } else if status.is_end_of_word() && !symbols.is_empty() {
+        } else if status.is_end_of_letter() && !symbols.is_empty() {
             // If it's the end of the word I can try to decode the symbols gathered
             rc += decode(&symbols);
             symbols.clear();
@@ -489,11 +491,12 @@ fn parse(samples: &[i16], threshold: i16) -> String {
         rc += decode(&symbols);
         symbols.clear();
     }
-    rc
+    rc.trim_end().to_owned()
 }
 
 fn decode(morse: &[Symbol]) -> &'static str {
     // WTF is this formatting?
+    // the vecs aren't a good idea I don't think
     let map: std::collections::HashMap<Vec<Symbol>, &'static str> = [
         (vec![Symbol::Short, Symbol::Long], "a"),
         (
@@ -851,12 +854,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_short() {
-        // Short is 63ms
-        // Long is 190 ms
+    fn parse_e() {
+        // Short is 60ms
+        // Long is 180 ms
         // Gap between is 60ms
         // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
+        // For a gap you'd expect to see   ~500 samples lower than the threshold
         // For a long you'd expect to see  ~1500 samples greater than the threshold
         let mut data: [i16; 2000] = [0; 2000];
         let thresh = 100;
@@ -864,148 +867,62 @@ mod tests {
             *d = thresh + 1;
         }
         let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Short], symbols.unwrap());
+        assert_eq!("e", symbols);
     }
     #[test]
-    fn parse_long() {
-        // Short is 63ms
-        // Long is 190 ms
+    fn parse_j() {
+        // Short is 60ms
+        // Long is 180 ms
         // Gap between is 60ms
         // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
+        // For a gap you'd expect to see   ~500 samples lower than the threshold
         // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 2000] = [0; 2000];
-        let thresh = 100;
-        for d in &mut data[100..1601] {
-            *d = thresh + 1;
-        }
-        let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Long], symbols.unwrap());
-    }
-    #[test]
-    fn parse_longs() {
-        // Short is 63ms
-        // Long is 190 ms
-        // Gap between is 60ms
-        // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
-        // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 5000] = [0; 5000];
-        let thresh = 100;
-        for d in &mut data[100..1601] {
-            *d = thresh + 1;
-        }
-
-        for d in &mut data[2300..3802] {
-            *d = thresh + 1;
-        }
-        let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Long, Symbol::Long], symbols.unwrap());
-    }
-
-    #[test]
-    fn parse_mixed() {
-        // Short is 63ms
-        // Long is 190 ms
-        // Gap between is 60ms
-        // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
-        // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 5000] = [0; 5000];
+        // j is .--- = 1000, 2000,2000,2000
+        let mut data: [i16; 10000] = [0; 10000];
         let thresh = 100;
         for d in &mut data[100..601] {
             *d = thresh + 1;
         }
-
-        for d in &mut data[2300..3802] {
+        for d in &mut data[1101..3000] {
+            *d = thresh + 1;
+        }
+        for d in &mut data[3501..5500] {
+            *d = thresh + 1;
+        }
+        for d in &mut data[6001..8000] {
             *d = thresh + 1;
         }
         let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Short, Symbol::Long], symbols.unwrap());
+        assert_eq!("j", symbols);
     }
 
     #[test]
-    fn parse_mixed_lengths() {
-        // Short is 63ms
-        // Long is 190 ms
+    fn parse_je() {
+        // Short is 60ms
+        // Long is 180 ms
         // Gap between is 60ms
         // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
+        // For a gap you'd expect to see   ~500 samples lower than the threshold
         // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 5000] = [0; 5000];
-        let thresh = 100;
-        for d in &mut data[100..1601] {
-            *d = thresh + 1;
-        }
-
-        for d in &mut data[2300..2802] {
-            *d = -(thresh + 1);
-        }
-        let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Long, Symbol::Short], symbols.unwrap());
-    }
-
-    #[test]
-    fn parse_shorts() {
-        // Short is 63ms
-        // Long is 190 ms
-        // Gap between is 60ms
-        // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
-        // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 2000] = [0; 2000];
+        // j is .--- = 1000, 2000,2000,2000
+        let mut data: [i16; 15000] = [0; 15000];
         let thresh = 100;
         for d in &mut data[100..601] {
             *d = thresh + 1;
         }
-        for d in &mut data[1100..1601] {
+        for d in &mut data[1101..3000] {
+            *d = thresh + 1;
+        }
+        for d in &mut data[3501..5500] {
+            *d = thresh + 1;
+        }
+        for d in &mut data[6000..8000] {
+            *d = thresh + 1;
+        }
+       for d in &mut data[10001..10500] {
             *d = thresh + 1;
         }
         let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Short, Symbol::Short], symbols.unwrap());
+        assert_eq!("j e", symbols);
     }
-
-    #[test]
-    fn parse_shorts_from_neg() {
-        // Short is 63ms
-        // Long is 190 ms
-        // Gap between is 60ms
-        // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
-        // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 2000] = [0; 2000];
-        let thresh = 100;
-        for d in &mut data[100..601] {
-            *d = -(thresh + 1);
-        }
-        for d in &mut data[1100..1601] {
-            *d = -(thresh + 1);
-        }
-        let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Short, Symbol::Short], symbols.unwrap());
-    }
-
-    #[test]
-    fn parse_shorts_from_mixed() {
-        // Short is 63ms
-        // Long is 190 ms
-        // Gap between is 60ms
-        // For a short you'd expect to see ~500 samples greater than the threshold
-        // For a gap you'd expect to see   >500 samples lower than the threshold
-        // For a long you'd expect to see  ~1500 samples greater than the threshold
-        let mut data: [i16; 2000] = [0; 2000];
-        let thresh = 100;
-        for d in &mut data[100..501] {
-            *d = -(thresh + 1);
-        }
-        for d in &mut data[500..601] {
-            *d = thresh + 1;
-        }
-        for d in &mut data[1100..1601] {
-            *d = -(thresh + 1);
-        }
-        let symbols = parse(&data, thresh);
-        assert_eq!(vec![Symbol::Short, Symbol::Short], symbols.unwrap());
-    }
-
 }
