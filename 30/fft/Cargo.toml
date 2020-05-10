@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 portaudio = "0.7.0"
 three="0.4.0"
+rustfft="3.0.1"
